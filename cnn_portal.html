@@ -83,35 +83,36 @@
 
         .glass-header {
             background: rgba(28, 28, 33, 0.9);
-            backdrop-filter: blur(12px);
-        }
-
-        @keyframes pulseExpiring {
-            0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
-            50% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
-        }
-        .expiring-badge {
-            animation: pulseExpiring 2s infinite;
-        }
-    </style>
-</head>
-
-<body class="min-h-screen flex flex-col bg-cnn-bg text-cnn-textMain selection:bg-cnn-orange selection:text-white">
-
-    <!-- Top Bar: Local Path E:\cnnPortal, Test Suite & Multi-file Export -->
+    <!-- Top Bar: Local Path E:\cnnPortal, Live Sync Status, Test Suite & Multi-file Export -->
     <header class="sticky top-0 z-40 glass-header border-b border-cnn-border px-3 sm:px-6 py-2.5">
         <div class="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-3">
             
-            <!-- Left: Local Folder Path Indicator -->
-            <div class="flex items-center gap-2">
+            <!-- Left: Local Folder Path Indicator & Live Cloud Sync Indicator -->
+            <div class="flex flex-wrap items-center gap-2">
                 <button onclick="openMultiFileModal()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cnn-bg hover:bg-cnn-surface border border-cnn-orange/40 text-xs font-mono text-cnn-orange transition-colors" title="Скачать раздельные файлы для E:\cnnPortal">
                     <i data-lucide="folder-code" class="w-3.5 h-3.5"></i>
                     <span>E:\cnnPortal (4 файла)</span>
                 </button>
+
+                <!-- Live Multi-User Cloud Sync Status & Complete User ID -->
+                <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-cnn-bg border border-cnn-border text-xs">
+                    <span id="syncStatusDot" class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                    <span id="syncStatusText" class="font-semibold text-gray-200">Подключение к облаку...</span>
+                    <span class="text-cnn-border hidden md:inline">|</span>
+                    <span class="text-[11px] font-mono text-cnn-textMuted hidden md:inline">
+                        ID: <strong id="currentUserIdDisplay" class="text-cnn-orange select-all">ожидание...</strong>
+                    </span>
+                </div>
             </div>
 
             <!-- Right: Testing & Project Files -->
             <div class="flex flex-wrap items-center gap-2">
+                <!-- Button: Force Cloud Sync / Info -->
+                <button onclick="forceManualSyncCheck()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cnn-surface hover:bg-cnn-border text-xs text-gray-200 border border-cnn-border transition-all" title="Проверить синхронизацию общей базы">
+                    <i data-lucide="cloud-lightning" class="w-3.5 h-3.5 text-cnn-orange"></i>
+                    <span class="hidden sm:inline">Общая база: LIVE</span>
+                </button>
+
                 <!-- Button: Open Auto-Deletion Test Suite -->
                 <button onclick="toggleTestPanel()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cnn-orangeMuted hover:bg-cnn-orange text-cnn-orange hover:text-white border border-cnn-orange/40 text-xs font-semibold transition-all">
                     <i data-lucide="flask-conical" class="w-3.5 h-3.5"></i>
@@ -1190,10 +1191,21 @@
     <!-- Toast Notification Container -->
     <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2.5 max-w-sm w-full pointer-events-none"></div>
 
-    <script>
-        const STORAGE_STATE_KEY = 'cnn_portal_contracts_v4';
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
         const HOUR_MS = 60 * 60 * 1000;
         const DAY_MS = 24 * HOUR_MS;
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'cnn-portal-shared-app';
+        let app = null;
+        let db = null;
+        let auth = null;
+        let currentUser = null;
+        let currentUserId = '';
+        let isApplyingRemoteUpdate = false;
 
         // Default pre-populated Contracts with exact whole days or exact whole hours
         function createDefaultContracts() {
@@ -1214,7 +1226,7 @@
                     partner: 'Таксопарк «Downtown Cab Co.»',
                     fullText: 'Таксопарк «Downtown Cab Co.» ведет набор водителей со стажем от 3 лет. Ежедневные выплаты, премии за ночные смены и полный соцпакет!',
                     pinned: false,
-                    expiresAt: now + (1 * DAY_MS), // 1 day left (< 2 days -> "Скоро истекает")
+                    expiresAt: now + (1 * DAY_MS),
                     createdAt: '06.10.2026'
                 },
                 {
@@ -1232,7 +1244,7 @@
                     partner: 'Холдинг «Maze Bank Tower»',
                     fullText: 'Инвестиционный фонд «Maze Bank» предлагает премиальное обслуживание бизнеса и льготное кредитование корпоративных клиентов под 4% годовых.',
                     pinned: false,
-                    expiresAt: now + (18 * HOUR_MS), // Exactly 18 hours left (< 1 day -> "18 ч.", "Скоро истекает")
+                    expiresAt: now + (18 * HOUR_MS),
                     createdAt: '06.10.2026'
                 },
                 {
@@ -1249,24 +1261,16 @@
 
         // Runtime State
         let state = {
-            activeMainPage: 'contracts', // 'contracts' | 'pro_builder'
-            contractFilter: 'all', // 'all' | 'active' | 'expiring'
-            contracts: [],
+            activeMainPage: 'contracts',
+            contractFilter: 'all',
+            contracts: createDefaultContracts(),
             openSpoilers: {},
             timeOffsetMs: 0,
             activeSplitTab: 'index.html'
         };
 
-        // =========================================================================
-        // ПРО CONSTRUCTOR & SELF-LEARNING ENGINE (НЕЙРО-ПАМЯТЬ ПРО SANTAMARIA RP)
-        // =========================================================================
-        const PRO_MEMORY_STORAGE_KEY = 'cnn_portal_pro_learning_v2';
-
-        // Структурированная база знаний по 5 категориям с https://wiki.santamaria-rp.com/
-        // Каждая запись автоматически обучает словарь сленга конструктора ПРО
         const SANTAMARIA_WIKI_DATABASE = {
             vehicles: [
-                // Реальные / Кастомные авто (а/м)
                 { full: 'BMW M5 F90', category: 'car', triggers: ['м5 ф90', 'm5 f90', 'бмв м5', 'бмв', 'ф90', 'f90'], sampleCmd: 'куплю м5 ф90 фт 18кк' },
                 { full: 'BMW M5 E60', category: 'car', triggers: ['м5 е60', 'е60', 'e60'], sampleCmd: 'продам м5 е60 8кк' },
                 { full: 'BMW M3 G80', category: 'car', triggers: ['м3 г80', 'м3', 'm3 g80', 'г80'], sampleCmd: 'куплю м3 г80 16кк' },
@@ -1317,7 +1321,6 @@
                 { full: 'Lexus LX570', category: 'car', triggers: ['лексус', 'лх570', 'lx570'], sampleCmd: 'продам лексус 11кк' },
                 { full: 'Tesla Cybertruck', category: 'car', triggers: ['кибертрак', 'cybertruck', 'тесла кибертрак'], sampleCmd: 'продам кибертрак 25кк' },
                 { full: 'Tesla Model S Plaid', category: 'car', triggers: ['тесла', 'теслу', 'tesla'], sampleCmd: 'куплю теслу 12кк' },
-                // Классические авто GTA SA (а/м)
                 { full: 'Infernus', category: 'car', triggers: ['инфернус', 'инфа', 'инфу', 'infernus'], sampleCmd: 'куплю инфернус фт 12кк' },
                 { full: 'Sultan', category: 'car', triggers: ['султан', 'sultan'], sampleCmd: 'продам султан фт 3.5кк' },
                 { full: 'Bullet', category: 'car', triggers: ['булка', 'булку', 'буллет', 'bullet'], sampleCmd: 'продам булку фт 8кк' },
@@ -1334,7 +1337,6 @@
                 { full: 'Comet', category: 'car', triggers: ['комет', 'комета', 'comet'], sampleCmd: 'куплю комет 3.5кк' },
                 { full: 'Patriot', category: 'car', triggers: ['патриот', 'хаммер', 'patriot'], sampleCmd: 'продам патриот 9кк' },
                 { full: 'Hotring Racer', category: 'car', triggers: ['хотринг', 'hotring'], sampleCmd: 'продам хотринг 10кк' },
-                // Мотоциклы (м/ц)
                 { full: 'NRG-500', category: 'moto', triggers: ['нрг', 'нрг-500', 'nrg', 'nrg-500'], sampleCmd: 'куплю нрг 15кк' },
                 { full: 'FCR-900', category: 'moto', triggers: ['фкр', 'фкр-900', 'fcr'], sampleCmd: 'продам фкр 2.5кк' },
                 { full: 'PCJ-600', category: 'moto', triggers: ['псж', 'пцж', 'pcj'], sampleCmd: 'продам псж 1.2кк' },
@@ -1342,7 +1344,6 @@
                 { full: 'Freeway', category: 'moto', triggers: ['фривей', 'чоппер', 'freeway'], sampleCmd: 'продам фривей 1.4кк' },
                 { full: 'Kawasaki Ninja H2R', category: 'moto', triggers: ['кавасаки', 'ниндзя', 'h2r', 'kawasaki'], sampleCmd: 'продам кавасаки 18кк' },
                 { full: 'BMW S1000RR', category: 'moto', triggers: ['s1000rr', 'бмв мото', 'с1000рр'], sampleCmd: 'куплю s1000rr 14кк' },
-                // Воздушный / Водный / Грузовой транспорт
                 { full: 'Maverick', category: 'heli', triggers: ['маверик', 'мавер', 'вертолет', 'maverick'], sampleCmd: 'куплю маверик 28кк' },
                 { full: 'Sparrow', category: 'heli', triggers: ['спарроу', 'воробей', 'sparrow'], sampleCmd: 'продам спарроу 16кк' },
                 { full: 'Tropic', category: 'boat', triggers: ['тропик', 'яхта', 'яхту', 'tropic'], sampleCmd: 'продам яхту 12кк' },
@@ -1354,7 +1355,6 @@
                 { full: 'Фура', category: 'truck', triggers: ['фура', 'фуру', 'тягач'], sampleCmd: 'сдам фуру 500к час' }
             ],
             clothes: [
-                // Скины и одежда (о/п)
                 { full: 'CJ (ID 0)', category: 'skin', triggers: ['сиджей', 'сж', 'cj', 'ид 0'], sampleCmd: 'куплю скин сиджей 45кк' },
                 { full: 'Вузи (ID 294)', category: 'skin', triggers: ['вузи', 'wuzi', 'ид 294'], sampleCmd: 'продам скин вузи 2.5кк' },
                 { full: 'Роллер (ID 99)', category: 'skin', triggers: ['роллер', 'роллера', 'ид 99', 'ид 92'], sampleCmd: 'куплю скин роллер 18кк' },
@@ -1380,7 +1380,6 @@
                 { full: 'Худи Supreme', category: 'skin', triggers: ['суприм', 'худи суприм', 'supreme'], sampleCmd: 'продам скин суприм 4.5кк' }
             ],
             realestate: [
-                // Типы недвижимости и локации из Wiki
                 { full: 'на г. Vinewood', category: 'location', triggers: ['вв', 'вайнвуд', 'vinewood'], sampleCmd: 'продам дом вв гараж 50кк' },
                 { full: 'в г. Los-Santos', category: 'location', triggers: ['лс', 'лос сантос', 'ls'], sampleCmd: 'куплю дом лс гараж 15кк' },
                 { full: 'в г. San-Fierro', category: 'location', triggers: ['сф', 'сан фиерро', 'sf'], sampleCmd: 'продам дом сф гараж 12кк' },
@@ -1397,7 +1396,6 @@
                 { full: 'в д. Montgomery', category: 'location', triggers: ['монтгомери'], sampleCmd: 'куплю дом монтгомери 5.5кк' }
             ],
             items: [
-                // Аксессуары (а/с)
                 { full: 'Катана', category: 'acc', triggers: ['катана', 'катану', 'katana'], sampleCmd: 'продам катану +12 25кк' },
                 { full: 'Воздушный шар', category: 'acc', triggers: ['шар', 'шарик', 'воздушный шар'], sampleCmd: 'куплю шар +12 35кк' },
                 { full: 'Ангельское кольцо', category: 'acc', triggers: ['нимб', 'ангельское кольцо'], sampleCmd: 'продам нимб +12 40кк' },
@@ -1416,7 +1414,6 @@
                 { full: 'Бумбокс', category: 'acc', triggers: ['бумбокс', 'колонку'], sampleCmd: 'продам бумбокс 3.5кк' },
                 { full: 'Гитара', category: 'acc', triggers: ['гитара', 'гитару'], sampleCmd: 'продам гитару +8 5кк' },
                 { full: 'Кастомный бронежилет', category: 'acc', triggers: ['броник', 'кастом броник', 'бронежилет'], sampleCmd: 'куплю броник +12 20кк' },
-                // Ресурсы и Предметы инвентаря (р/с)
                 { full: 'Bitcoin', category: 'res', triggers: ['биткоин', 'битки', 'биток', 'btc'], sampleCmd: 'куплю битки 65к' },
                 { full: 'Видеокарта', category: 'res', triggers: ['видеокарта', 'видеокарту', 'видюха', 'видюху'], sampleCmd: 'куплю видеокарту 8 лвл 15кк' },
                 { full: 'Охлаждающая жидкость', category: 'res', triggers: ['охлаждайка', 'охлаждайку', 'охлаждающая жидкость'], sampleCmd: 'куплю охлаждайку 250к' },
@@ -1433,7 +1430,6 @@
                 { full: 'Хлопок и Лён', category: 'res', triggers: ['хлопок', 'лен', 'лён'], sampleCmd: 'куплю хлопок 5к' }
             ],
             businesses: [
-                // Бизнесы / Предприятия (п/п)
                 { full: 'Магазин 24/7', category: 'biz', triggers: ['24/7', '24 на 7', 'магазин 24/7'], sampleCmd: 'продам биз 24/7 лс 85кк' },
                 { full: 'АЗС', category: 'biz', triggers: ['азс', 'заправка', 'заправку'], sampleCmd: 'продам азс лс 150кк' },
                 { full: 'Магазин оружия', category: 'biz', triggers: ['аммо', 'амуниция', 'аммунация', 'ammo'], sampleCmd: 'куплю аммо лс 200кк' },
@@ -1453,7 +1449,6 @@
             ]
         };
 
-        // Собирает единый словарь сленга из всех 5 разделов Wiki SantaMaria RP
         function buildWikiSlangDictionary() {
             const dict = {};
             Object.values(SANTAMARIA_WIKI_DATABASE).forEach(group => {
@@ -1472,11 +1467,10 @@
 
         function createDefaultProMemory() {
             return {
-                quotesStyle: 'double', // 'double' -> "Infernus", 'guillemet' -> «Infernus»
-                priceSeparator: '.',   // '.' -> 5.000.000$, ',' -> 5,000,000$
+                quotesStyle: 'double',
+                priceSeparator: '.',
                 totalAdsProcessed: 38,
                 slangDictionary: buildWikiSlangDictionary(),
-                // Выученные шаблоны-прецеденты (запоминаются из правок пользователя)
                 learnedTemplates: [
                     {
                         id: 'lt-1',
@@ -1507,28 +1501,177 @@
             userEditedOutput: false
         };
 
-        function loadProMemory() {
-            try {
-                const raw = localStorage.getItem(PRO_MEMORY_STORAGE_KEY);
-                if (raw) {
-                    const parsed = JSON.parse(raw);
-                    proMemory = {
-                        ...createDefaultProMemory(),
-                        ...parsed,
-                        slangDictionary: { ...createDefaultProMemory().slangDictionary, ...(parsed.slangDictionary || {}) },
-                        learnedTemplates: Array.isArray(parsed.learnedTemplates) ? parsed.learnedTemplates : createDefaultProMemory().learnedTemplates
-                    };
-                }
-            } catch (e) {
-                proMemory = createDefaultProMemory();
+        // Helper to update the cloud sync badge in the top bar
+        function updateSyncStatusUI(mode, text) {
+            const dot = document.getElementById('syncStatusDot');
+            const label = document.getElementById('syncStatusText');
+            const uidEl = document.getElementById('currentUserIdDisplay');
+
+            if (uidEl && currentUserId) {
+                uidEl.textContent = currentUserId;
+            }
+            if (!dot || !label) return;
+
+            label.textContent = text;
+            if (mode === 'online') {
+                dot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+            } else if (mode === 'syncing') {
+                dot.className = 'w-2 h-2 rounded-full bg-cnn-orange animate-ping';
+            } else if (mode === 'error') {
+                dot.className = 'w-2 h-2 rounded-full bg-red-500';
+            } else {
+                dot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
             }
         }
 
-        function saveProMemory() {
+        async function initCloudSync() {
             try {
-                localStorage.setItem(PRO_MEMORY_STORAGE_KEY, JSON.stringify(proMemory));
-            } catch (e) {}
+                if (typeof __firebase_config === 'undefined' || !__firebase_config) {
+                    currentUserId = 'local-' + crypto.randomUUID();
+                    updateSyncStatusUI('online', 'Локальный режим');
+                    return;
+                }
+
+                const firebaseConfig = JSON.parse(__firebase_config);
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                // RULE 3: Authenticate FIRST before any Firestore query
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                currentUser = auth.currentUser;
+                currentUserId = currentUser?.uid || crypto.randomUUID();
+                updateSyncStatusUI('online', 'Синхронизировано (Онлайн)');
+
+                onAuthStateChanged(auth, (user) => {
+                    currentUser = user;
+                    if (user) {
+                        currentUserId = user.uid;
+                        updateSyncStatusUI('online', 'Синхронизировано (Онлайн)');
+                    }
+                });
+
+                if (!currentUser) return;
+
+                // RULE 1 & RULE 2: Simple collection query on strict path /artifacts/{appId}/public/data/cnn_portal_sync
+                const syncColRef = collection(db, 'artifacts', appId, 'public', 'data', 'cnn_portal_sync');
+
+                onSnapshot(
+                    syncColRef,
+                    async (snapshot) => {
+                        if (!currentUser) return;
+
+                        let foundContractsDoc = false;
+                        let foundProMemoryDoc = false;
+
+                        snapshot.forEach((docSnap) => {
+                            const data = docSnap.data();
+                            if (docSnap.id === 'contracts_state') {
+                                foundContractsDoc = true;
+                                if (Array.isArray(data.contracts)) {
+                                    isApplyingRemoteUpdate = true;
+                                    const now = getCurrentTimeMs();
+                                    state.contracts = data.contracts.filter(c => c.expiresAt > now);
+                                    updateUI();
+                                    isApplyingRemoteUpdate = false;
+                                }
+                            } else if (docSnap.id === 'pro_memory_state') {
+                                foundProMemoryDoc = true;
+                                isApplyingRemoteUpdate = true;
+                                let parsedDict = {};
+                                try {
+                                    parsedDict = data.slangDictionaryJson ? JSON.parse(data.slangDictionaryJson) : {};
+                                } catch (e) {
+                                    parsedDict = {};
+                                }
+                                proMemory = {
+                                    ...createDefaultProMemory(),
+                                    quotesStyle: data.quotesStyle || 'double',
+                                    priceSeparator: data.priceSeparator || '.',
+                                    totalAdsProcessed: typeof data.totalAdsProcessed === 'number' ? data.totalAdsProcessed : 38,
+                                    slangDictionary: { ...createDefaultProMemory().slangDictionary, ...parsedDict },
+                                    learnedTemplates: Array.isArray(data.learnedTemplates) ? data.learnedTemplates : createDefaultProMemory().learnedTemplates
+                                };
+                                updateProSidebarBadge();
+                                renderProLearningDashboard();
+                                handleProRawInput();
+                                isApplyingRemoteUpdate = false;
+                            }
+                        });
+
+                        // Seed initial shared state if collection is empty on first launch
+                        if (!foundContractsDoc) {
+                            await saveDatabase();
+                        }
+                        if (!foundProMemoryDoc) {
+                            await saveProMemory();
+                        }
+
+                        updateSyncStatusUI('online', 'Синхронизировано (Онлайн)');
+                    },
+                    (error) => {
+                        console.error('Ошибка чтения общей базы:', error);
+                        updateSyncStatusUI('error', 'Ошибка синхронизации');
+                    }
+                );
+            } catch (err) {
+                console.error('Ошибка инициализации облачной синхронизации:', err);
+                updateSyncStatusUI('error', 'Автономный режим');
+            }
+        }
+
+        async function saveDatabase() {
+            if (!currentUser || !db || isApplyingRemoteUpdate) return;
+            try {
+                updateSyncStatusUI('syncing', 'Сохранение в облако...');
+                const contractsDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'cnn_portal_sync', 'contracts_state');
+                await setDoc(contractsDocRef, {
+                    contracts: state.contracts,
+                    updatedAt: Date.now(),
+                    updatedBy: currentUserId
+                });
+                updateSyncStatusUI('online', 'Синхронизировано (Онлайн)');
+            } catch (err) {
+                console.error('Ошибка сохранения контрактов:', err);
+                updateSyncStatusUI('error', 'Ошибка сохранения');
+            }
+        }
+
+        async function saveProMemory() {
             updateProSidebarBadge();
+            if (!currentUser || !db || isApplyingRemoteUpdate) return;
+            try {
+                updateSyncStatusUI('syncing', 'Синхронизация ПРО...');
+                const proDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'cnn_portal_sync', 'pro_memory_state');
+                await setDoc(proDocRef, {
+                    quotesStyle: proMemory.quotesStyle || 'double',
+                    priceSeparator: proMemory.priceSeparator || '.',
+                    totalAdsProcessed: proMemory.totalAdsProcessed || 0,
+                    slangDictionaryJson: JSON.stringify(proMemory.slangDictionary || {}),
+                    learnedTemplates: proMemory.learnedTemplates || [],
+                    updatedAt: Date.now(),
+                    updatedBy: currentUserId
+                });
+                updateSyncStatusUI('online', 'Синхронизировано (Онлайн)');
+            } catch (err) {
+                console.error('Ошибка сохранения памяти ПРО:', err);
+                updateSyncStatusUI('error', 'Ошибка сохранения');
+            }
+        }
+
+        function forceManualSyncCheck() {
+            if (!currentUser || !db) {
+                showToast('Статус синхронизации', 'Облачная база данных инициализируется...');
+                return;
+            }
+            saveDatabase();
+            saveProMemory();
+            showToast('Общая база синхронизирована!', `Ваш ID сотрудника: ${currentUserId}`);
         }
 
         function updateProSidebarBadge() {
@@ -1575,9 +1718,7 @@
             return rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, sep) + '$';
         }
 
-        // Парсер цен из сокращений: "5кк" -> 5.000.000$, "3.5млн" -> 3.500.000$, "500к" -> 500.000$
         function extractPriceFromTokens(rawStr) {
-            // Ищем число с суффиксом к/кк/ккк/тыс/млн/кк
             const priceRegex = /(?:^|\s)(\d+(?:[.,]\d+)?)\s*(ккк|млрд|кк|млн|к|тыс|\$)?(?=\s|$)/gi;
             let match;
             while ((match = priceRegex.exec(rawStr)) !== null) {
@@ -1585,7 +1726,6 @@
                 const numPart = parseFloat(match[1].replace(',', '.'));
                 const unit = (match[2] || '').toLowerCase();
 
-                // Пропускаем гравировки типа "+12" или "24/7"
                 if (rawStr.includes('+' + match[1]) || rawStr.includes(match[1] + '/7')) continue;
 
                 let multiplier = 1;
@@ -1593,7 +1733,7 @@
                 else if (unit === 'кк' || unit === 'млн') multiplier = 1000000;
                 else if (unit === 'к' || unit === 'тыс') multiplier = 1000;
                 else if (numPart >= 1000) multiplier = 1;
-                else continue; // Одиночные маленькие числа без "к/кк" не считаем ценой
+                else continue;
 
                 return {
                     rawToken: fullToken,
@@ -1604,7 +1744,6 @@
             return null;
         }
 
-        // Нормализация строки запроса для поиска в памяти прецедентов (заменяет цену на {PRICE})
         function normalizeQueryToPatternKey(rawInput) {
             let norm = rawInput.toLowerCase().trim().replace(/\s+/g, ' ');
             const priceInfo = extractPriceFromTokens(norm);
@@ -1614,7 +1753,6 @@
             return norm;
         }
 
-        // Главный парсер и генератор ПРО из пары слов
         function generateProSentenceFromShorthand(rawInput) {
             const trimmed = (rawInput || '').trim();
             if (!trimmed) {
@@ -1628,20 +1766,18 @@
             const priceInfo = extractPriceFromTokens(trimmed);
             const patternKey = normalizeQueryToPatternKey(trimmed);
 
-            // 1. Проверяем нейро-память прецедентов (выученные шаблоны пользователя)
             const learnedHit = proMemory.learnedTemplates.find(t => t.patternKey === patternKey);
             if (learnedHit) {
                 let sentence = learnedHit.templateText;
                 if (priceInfo && priceInfo.formatted) {
                     sentence = sentence.replace(/\{PRICE\}/g, priceInfo.formatted);
-                    // Если в шаблоне была фиксированная цена, подменяем её
                     sentence = sentence.replace(/(\d[\d.,\s]*\$)/g, priceInfo.formatted);
                 } else {
                     sentence = sentence.replace(/\{PRICE\}/g, 'Договорная');
                 }
                 return {
                     sentence,
-                    source: '⚡ Из памяти самообучения',
+                    source: '⚡ Из общей памяти самообучения',
                     breakdown: [
                         { label: 'Память прецедентов', val: learnedHit.patternKey },
                         ...(priceInfo ? [{ label: 'Цена/Бюджет', val: priceInfo.formatted }] : [])
@@ -1653,7 +1789,6 @@
             const words = trimmed.split(/\s+/);
             const breakdown = [];
 
-            // 2. Определяем действие (Куплю / Продам / Обменяю / Сдам / Арендую / Семья)
             let action = 'sell';
             if (/^(куплю|куп|возьму|ищу\s+а\/м|приобрету)/i.test(lower)) action = 'buy';
             else if (/^(продам|прод|сялью|солью|отдам)/i.test(lower)) action = 'sell';
@@ -1672,7 +1807,6 @@
             };
             breakdown.push({ label: 'Действие', val: actionLabels[action] });
 
-            // Специальная обработка "набор в фаму / семью"
             if (action === 'family') {
                 if (/ищу\s+(фам|сем)/i.test(lower)) {
                     return {
@@ -1690,14 +1824,12 @@
                 };
             }
 
-            // 3. Определяем категорию, предмет, локацию и модификаторы
             let category = null;
             let detectedItems = [];
             let locationText = '';
             let extras = [];
             let houseClassText = '';
 
-            // Проверяем явные маркеры категорий (Недвижимость, Одежда, Предметы, Бизнесы)
             if (/\b(особняк|коттедж)\b/i.test(lower)) {
                 category = 'house';
                 houseClassText = 'особняк';
@@ -1721,7 +1853,6 @@
                 category = 'res';
             }
 
-            // Комплектации авто, улучшения домов и характеристики предметов из Wiki
             if (/\b(фт|ft|фулл)\b/i.test(lower)) extras.push('в полной комплектации');
             if (/\b(тт|tt)\b/i.test(lower)) extras.push('с пакетом "Twin-Turbo"');
             if (/\b(ст3|stage\s*3)\b/i.test(lower)) extras.push('с чип-тюнингом "Stage 3"');
@@ -1733,26 +1864,22 @@
             if (/\b(майнинг|ферма майнинг|с майнингом)\b/i.test(lower)) extras.push('с майнинг-фермой');
             if (/\b(подвал|с подвалом)\b/i.test(lower)) extras.push('с подвалом');
 
-            // Уровень предмета (например: видеокарта 8 лвл)
             const lvlMatch = lower.match(/(\d{1,2})\s*(?:лвл|lvl|ур|уровня)\b/i);
             if (lvlMatch) {
                 extras.push(`${lvlMatch[1]}-го поколения`);
             }
 
-            // Гравировка / заточка аксессуаров (+12, +15 и т.д.)
             const gravMatch = trimmed.match(/\+(\d{1,2})\b/);
             if (gravMatch) {
                 extras.push(`с гравировкой +${gravMatch[1]}`);
                 if (!category) category = 'acc';
             }
 
-            // Многословный и однословный поиск по базе знаний Wiki SantaMaria RP
             let workingLower = lower;
             if (priceInfo && priceInfo.rawToken) {
                 workingLower = workingLower.replace(priceInfo.rawToken.toLowerCase(), ' ');
             }
 
-            // Сначала проверяем многословные триггеры из словаря (по убыванию длины фразы)
             const sortedSlangKeys = Object.keys(proMemory.slangDictionary).sort((a, b) => b.length - a.length);
             for (const trigKey of sortedSlangKeys) {
                 if (trigKey.length < 2) continue;
@@ -1774,7 +1901,6 @@
 
             const stopWords = new Set(['куплю', 'куп', 'продам', 'прод', 'обмен', 'обменяю', 'на', 'с', 'в', 'сдам', 'арендую', 'сниму', 'аренду', 'час', 'дп', 'доплата', 'фт', 'ft', 'тт', 'tt', 'ст1', 'ст2', 'ст3', 'сток', 'дом', 'хату', 'особняк', 'коттедж', 'трейлер', 'кв', 'квартиру', 'биз', 'бизнес', 'скин', 'акс', 'гараж', 'гаражом', 'майнинг', 'подвал', 'лвл', 'lvl', 'ур']);
 
-            // Если предмет не найден в словаре, пытаемся взять оставшееся значимое слово как название
             if (detectedItems.length === 0 && category !== 'house' && category !== 'flat') {
                 const candidateWords = words.filter(w => {
                     const cw = w.toLowerCase().replace(/[",.«»!?]/g, '');
@@ -1819,7 +1945,6 @@
             if (extras.length > 0) breakdown.push({ label: 'Детали', val: extras.join(', ') });
             if (priceInfo) breakdown.push({ label: 'Сумма', val: priceInfo.formatted });
 
-            // 4. Собираем предложение строго по канонам ПРО
             let mainBody = '';
             const extraStr = extras.length > 0 ? ' ' + extras.join(' ') : '';
             const locStr = locationText ? ' ' + locationText : '';
@@ -1849,14 +1974,13 @@
             const verb = verbMap[action] || 'Продам';
 
             if (category === 'house' || category === 'flat') {
-                const objWord = category === 'house' ? (action === 'buy' || action === 'sell' ? 'дом' : 'дом') : 'квартиру';
+                const objWord = category === 'house' ? 'дом' : 'квартиру';
                 const defaultLoc = locStr || ' в любой точке штата';
                 mainBody = `${verb} ${objWord}${defaultLoc}${extraStr}.`;
             } else {
                 mainBody = `${verb} ${catLabels[category]} ${wrapProQuotes(primaryItem)}${locStr}${extraStr}.`;
             }
 
-            // Формируем концовку с Ценой или Бюджетом по ПРО
             let priceTail = '';
             if (action === 'buy' || action === 'rent_in') {
                 priceTail = priceInfo && priceInfo.formatted
@@ -1885,7 +2009,6 @@
             };
         }
 
-        // Отрисовка интерактивного каталога Wiki SantaMaria RP (5 вкладок)
         function selectWikiCategoryTab(tabKey) {
             proManualState.activeWikiTab = tabKey;
             const tabs = ['vehicles', 'clothes', 'realestate', 'items', 'businesses'];
@@ -1905,7 +2028,6 @@
             const grid = document.getElementById('wikiCatalogGrid');
             if (!grid) return;
 
-            // Обновляем счетчики на вкладках
             let totalWikiObjects = 0;
             Object.keys(SANTAMARIA_WIKI_DATABASE).forEach(catKey => {
                 const len = SANTAMARIA_WIKI_DATABASE[catKey].length;
@@ -1923,7 +2045,6 @@
             let list = [];
 
             if (searchQ) {
-                // Если введен поисковый запрос — ищем сразу по всем 5 категориям Wiki
                 Object.keys(SANTAMARIA_WIKI_DATABASE).forEach(catKey => {
                     SANTAMARIA_WIKI_DATABASE[catKey].forEach(item => {
                         const matchFull = item.full.toLowerCase().includes(searchQ);
@@ -1951,7 +2072,7 @@
             };
 
             if (list.length === 0) {
-                grid.innerHTML = `<div class="col-span-full py-8 text-center text-xs text-cnn-textMuted">Ничего не найдено по запросу «${escapeHtml(searchQ)}». Вы можете обучить базу этому слову через форму справа!</div>`;
+                grid.innerHTML = `<div class="col-span-full py-8 text-center text-xs text-cnn-textMuted">Ничего не найдено по запросу «${escapeHtml(searchQ)}». Вы можете обучить общую базу этому слову через форму справа!</div>`;
                 return;
             }
 
@@ -2032,7 +2153,7 @@
             if (!outputEl) return;
             proManualState.userEditedOutput = (outputEl.value.trim() !== proManualState.lastGeneratedText.trim());
             if (proManualState.userEditedOutput && badgeEl) {
-                badgeEl.textContent = '✏️ Ручная правка (Готово к обучению)';
+                badgeEl.textContent = '✏️ Ручная правка (Синхронизируется при копировании)';
                 badgeEl.className = 'px-2.5 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono text-[11px] font-bold';
             }
             updateProCharCounter();
@@ -2046,7 +2167,6 @@
             }
         }
 
-        // Ручной выбор кнопок (Куплю/Продам + Категория)
         function setProManualField(field, value) {
             proManualState[field] = value;
 
@@ -2112,7 +2232,6 @@
             handleProRawInput();
         }
 
-        // ЯДРО САМООБУЧЕНИЯ: Анализ разницы между коротким вводом и отредактированным текстом
         function learnFromUserCorrection(rawInput, finalSentence, forceLearn = false) {
             const cleanRaw = (rawInput || '').trim();
             const cleanFinal = (finalSentence || '').trim();
@@ -2121,18 +2240,14 @@
             const patternKey = normalizeQueryToPatternKey(cleanRaw);
             const priceInfo = extractPriceFromTokens(cleanRaw);
 
-            // Превращаем конкретную цену в финальном предложении в универсальный токен {PRICE}
             let generalizedTemplate = cleanFinal;
             if (priceInfo && priceInfo.formatted) {
                 generalizedTemplate = generalizedTemplate.replace(priceInfo.formatted, '{PRICE}');
             }
-            // Также ищем любое число с $ в конце и заменяем на {PRICE}, если в запросе была цена
             if (priceInfo) {
                 generalizedTemplate = generalizedTemplate.replace(/(\d[\d.,\s]*\$)/, '{PRICE}');
             }
 
-            // 1. Авто-извлечение нового сленга: если в финальном тексте есть слово в кавычках ("..." или «...»),
-            // связываем неизвестное слово из ввода с этим названием
             const quotedMatch = cleanFinal.match(/["«]([^"»]+)["»]/);
             if (quotedMatch && quotedMatch[1]) {
                 const extractedProperName = quotedMatch[1].trim();
@@ -2165,7 +2280,6 @@
                 });
             }
 
-            // 2. Сохраняем или обновляем шаблон в памяти прецедентов
             const existingIdx = proMemory.learnedTemplates.findIndex(t => t.patternKey === patternKey);
             if (existingIdx !== -1) {
                 proMemory.learnedTemplates[existingIdx].templateText = generalizedTemplate;
@@ -2200,7 +2314,7 @@
             const didLearnNew = learnFromUserCorrection(rawInput, finalOutput, false);
 
             if (didLearnNew) {
-                showToast('Скопировано + Нейро-память обучена!', 'Ваш вариант сохранен и будет применяться автоматически');
+                showToast('Скопировано + Общая база обучена!', 'Ваш вариант синхронизирован для всех сотрудников');
             } else {
                 showToast('Объявление ПРО скопировано!', finalOutput.trim());
             }
@@ -2214,7 +2328,7 @@
                 return;
             }
             learnFromUserCorrection(rawInput, finalOutput, true);
-            showToast('Эталон сохранен в память самообучения!', `Запрос «${rawInput.trim()}» теперь закреплен за этим шаблоном`);
+            showToast('Эталон синхронизирован в общей базе!', `Запрос «${rawInput.trim()}» теперь доступен всем сотрудникам`);
             handleProRawInput();
         }
 
@@ -2262,7 +2376,7 @@
             fullEl.value = '';
             renderProLearningDashboard();
             handleProRawInput();
-            showToast(`Словарь обучен: «${trigger}» ➔ «${full}»`, 'Теперь конструктор автоматически распознает это сокращение');
+            showToast(`Общий словарь обучен: «${trigger}» ➔ «${full}»`, 'Синхронизировано для всех сотрудников');
         }
 
         function deleteLearnedTemplate(id) {
@@ -2351,7 +2465,6 @@
             lucide.createIcons();
         }
 
-        // Импорт и самообучение по тексту с форума SantaMaria RP
         function openForumImportModal() {
             const modal = document.getElementById('forumImportModal');
             modal.classList.remove('hidden');
@@ -2390,7 +2503,6 @@
             let learnedWords = 0;
 
             lines.forEach(line => {
-                // Если строка содержит разделитель "->" или "—" между примером ввода и ответом ПРО
                 const splitMatch = line.split(/\s*(?:->|=>|—|-)\s*/);
                 if (splitMatch.length >= 2 && (splitMatch[1].includes('Куплю') || splitMatch[1].includes('Продам') || splitMatch[1].includes('Обменяю') || splitMatch[1].includes('Сдам') || splitMatch[1].includes('Семья') || splitMatch[1].includes('Ищу'))) {
                     const rawPart = splitMatch[0].replace(/^пример:?\s*/i, '').trim();
@@ -2398,7 +2510,6 @@
                     learnFromUserCorrection(rawPart, proPart, true);
                     learnedPairs++;
                 } else {
-                    // Ищем конструкции вида: а/м марки "Название" или а/с "Название"
                     const quoteExtract = line.match(/(а\/м|м\/ц|в\/т|а\/с|о\/п|п\/п|р\/с)[^"«]*["«]([^"»]+)["»]/i);
                     if (quoteExtract) {
                         const typeRaw = quoteExtract[1].toLowerCase();
@@ -2421,7 +2532,7 @@
             renderProLearningDashboard();
             handleProRawInput();
             closeForumImportModal();
-            showToast('База ПРО успешно обучена по тексту форума!', `Добавлено шаблонов: ${learnedPairs}, новых терминов: ${learnedWords}`);
+            showToast('Общая база ПРО обучена!', `Синхронизировано шаблонов: ${learnedPairs}, новых терминов: ${learnedWords}`);
         }
 
         function exportLearnedMemoryJson() {
@@ -2435,30 +2546,7 @@
             saveProMemory();
             renderProLearningDashboard();
             handleProRawInput();
-            showToast('Память самообучения сброшена к заводским правилам ПРО');
-        }
-
-        function loadDatabase() {
-            try {
-                const raw = localStorage.getItem(STORAGE_STATE_KEY);
-                if (raw) {
-                    const parsed = JSON.parse(raw);
-                    state.contracts = Array.isArray(parsed.contracts) ? parsed.contracts : createDefaultContracts();
-                } else {
-                    state.contracts = createDefaultContracts();
-                    saveDatabase();
-                }
-            } catch (e) {
-                state.contracts = createDefaultContracts();
-            }
-        }
-
-        function saveDatabase() {
-            try {
-                localStorage.setItem(STORAGE_STATE_KEY, JSON.stringify({
-                    contracts: state.contracts
-                }));
-            } catch (e) {}
+            showToast('Общая память самообучения сброшена к базовым правилам ПРО');
         }
 
         function getCurrentTimeMs() {
@@ -2470,8 +2558,6 @@
             return msLeft / DAY_MS;
         }
 
-        // Счетчик считает дни до окончания (например: "10 дн.", "5 дн.").
-        // Если осталось меньше суток (< 24 ч.), пишет ровное число часов без округления (например: "18 ч.").
         function formatDaysRemaining(contractOrDays) {
             let msLeft;
             if (typeof contractOrDays === 'object' && contractOrDays !== null) {
@@ -2482,26 +2568,21 @@
 
             if (msLeft <= 0) return '0 ч. (Истек)';
 
-            // Для коротких live-тестов (< 1 минуты) показываем секунды
             if (msLeft < 60 * 1000) {
                 const secs = Math.max(1, Math.ceil(msLeft / 1000));
                 return `${secs} сек.`;
             }
 
-            // Точное количество оставшихся целых часов
             const totalHours = Math.max(1, Math.ceil(msLeft / HOUR_MS));
 
-            // Если осталось меньше 24 часов — выводим ровное число часов без округления
             if (totalHours < 24) {
                 return `${totalHours} ч.`;
             }
 
-            // Если 24 часа и больше — счетчик считает дни до окончания
             const wholeDays = Math.floor(totalHours / 24);
             return `${wholeDays} дн.`;
         }
 
-        // Подробная расшифровка (в днях и часах) для подсказки и спойлера
         function formatDetailedDaysAndHours(contract) {
             const msLeft = contract.expiresAt - getCurrentTimeMs();
             if (msLeft <= 0) return '0 дн. 0 ч.';
@@ -2511,7 +2592,6 @@
             return `${wholeDays} дн. ${remHours} ч.`;
         }
 
-        // Форматирование даты и времени, до какого числа активен контракт (ДД.ММ.ГГГГ ЧЧ:ММ)
         function formatExpirationDateTime(timestampMs) {
             const d = new Date(timestampMs);
             const day = String(d.getDate()).padStart(2, '0');
@@ -2522,7 +2602,6 @@
             return `${day}.${month}.${year} ${hours}:${mins}`;
         }
 
-        // Краткий формат даты (до ДД.ММ ЧЧ:ММ)
         function formatShortExpirationDate(timestampMs) {
             const d = new Date(timestampMs);
             const day = String(d.getDate()).padStart(2, '0');
@@ -2532,7 +2611,6 @@
             return `до ${day}.${month} ${hours}:${mins}`;
         }
 
-        // Конвертация timestamp в локальные значения для input[type="date"] и input[type="time"]
         function toDateInputParts(timestampMs) {
             const d = new Date(timestampMs);
             const year = d.getFullYear();
@@ -2546,7 +2624,6 @@
             };
         }
 
-        // Automatically deletes expired contracts (expiresAt <= now) from state and main page
         function purgeExpiredContracts(silent = false) {
             const now = getCurrentTimeMs();
             const expiredList = state.contracts.filter(c => c.expiresAt <= now);
@@ -2557,7 +2634,7 @@
 
                 expiredList.forEach(exp => {
                     delete state.openSpoilers[exp.id];
-                    logToTestConsole(`🗑️ [АВТО-УДАЛЕНИЕ] Контракт «${exp.codeword}» (${exp.partner}) удален с главной страницы: время истекло (0 ч.).`, 'text-amber-400');
+                    logToTestConsole(`🗑️ [АВТО-УДАЛЕНИЕ] Контракт «${exp.codeword}» (${exp.partner}) удален из общей базы: время истекло (0 ч.).`, 'text-amber-400');
                     if (!silent) {
                         showToast(`Контракт «${exp.codeword}» истек и удален`, `Срок действия с «${exp.partner}» закончился`);
                     }
@@ -2567,11 +2644,6 @@
                 return expiredList.length;
             }
             return 0;
-        }
-
-        function scrollToContracts() {
-            const el = document.getElementById('viewContracts');
-            if (el) el.scrollIntoView({ behavior: 'smooth' });
         }
 
         function updateUI() {
@@ -2601,7 +2673,6 @@
             }
         }
 
-        // Когда меняются "В днях" или "И часах" -> автоматически вычисляется "Активен до числа" и "Время окончания"
         function syncTargetDateFromDuration() {
             const dInput = document.getElementById('contractDaysInput');
             const hInput = document.getElementById('contractHoursInput');
@@ -2622,7 +2693,6 @@
             updateFormExpirationPreview(targetMs, days, hours);
         }
 
-        // Когда пользователь выбирает дату в календаре "Активен до числа" или "Время окончания" -> пересчитываются дни и часы
         function syncDurationFromTargetDate() {
             const dInput = document.getElementById('contractDaysInput');
             const hInput = document.getElementById('contractHoursInput');
@@ -2726,7 +2796,7 @@
 
             const timeLabel = formatDaysRemaining(newContract);
             const untilDate = formatExpirationDateTime(expiresAt);
-            showToast(`Контракт «${codeword}» добавлен (Счетчик: ${timeLabel})`, `Активен до: ${untilDate}`);
+            showToast(`Контракт «${codeword}» синхронизирован (${timeLabel})`, `Активен до: ${untilDate}`);
             updateUI();
         }
 
@@ -2765,7 +2835,7 @@
             if (!target) return;
             target.pinned = !target.pinned;
             saveDatabase();
-            showToast(target.pinned ? `Контракт «${target.codeword}» закреплен` : `Контракт «${target.codeword}» откреплен`);
+            showToast(target.pinned ? `Контракт «${target.codeword}» закреплен у всех` : `Контракт «${target.codeword}» откреплен`);
             renderContracts();
         }
 
@@ -2778,7 +2848,6 @@
             updateUI();
         }
 
-        // Установка точной даты и времени окончания для существующего контракта из спойлера
         function updateContractExactDate(contractId) {
             const target = state.contracts.find(c => c.id === contractId);
             if (!target) return;
@@ -2807,7 +2876,7 @@
             state.contracts = state.contracts.filter(c => c.id !== id);
             saveDatabase();
             if (target) {
-                showToast(`Контракт «${target.codeword}» удален`);
+                showToast(`Контракт «${target.codeword}» удален из общей базы`);
             }
             updateUI();
         }
@@ -2824,7 +2893,6 @@
                 clearBtn.classList.toggle('hidden', query.length === 0);
             }
 
-            // Ensure expired contracts are removed before rendering
             const now = getCurrentTimeMs();
             state.contracts = state.contracts.filter(c => c.expiresAt > now);
 
@@ -2870,7 +2938,6 @@
                 const shortExpireDate = formatShortExpirationDate(contract.expiresAt);
                 const dateParts = toDateInputParts(contract.expiresAt);
 
-                // Left Status Badge ("Активен" vs "Скоро истекает" if < 2 days)
                 const statusBadgeHtml = isExpiringSoon
                     ? `<span class="expiring-badge inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-500/15 text-amber-300 border border-amber-500/40 shrink-0" title="До конца контракта осталось меньше 2 дней">
                          <span class="w-2 h-2 rounded-full bg-amber-400"></span>
@@ -2881,7 +2948,6 @@
                          <span>Активен</span>
                        </span>`;
 
-                // Left Time Remaining Counter Badge (counts in days until expiration, or exact hours when < 24h) + "до ДД.ММ ЧЧ:ММ"
                 const timeBadgeHtml = `
                     <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-semibold bg-cnn-bg border ${isExpiringSoon ? 'border-amber-500/40 text-amber-300' : 'border-cnn-border text-gray-200'} shrink-0" title="Точный остаток: ${escapeHtml(detailedTime)} • Активен до ${escapeHtml(fullExpireDate)}">
                         <i data-lucide="clock" class="w-3.5 h-3.5 text-cnn-orange"></i>
@@ -2898,16 +2964,13 @@
 
                 return `
                     <div class="contract-row bg-cnn-card border ${isExpiringSoon ? 'border-amber-500/40' : contract.pinned ? 'border-cnn-orange/50' : 'border-cnn-border'} rounded-2xl overflow-hidden">
-                        <!-- Main List Row -->
                         <div class="p-3.5 sm:px-5 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 w-full">
                             
-                            <!-- Left Group: Status + Remaining Days Counter + Codeword + Compact Spoiler "текст" slightly to the right -->
                             <div class="flex flex-wrap items-center gap-2">
                                 ${pinnedBadgeHtml}
                                 ${statusBadgeHtml}
                                 ${timeBadgeHtml}
 
-                                <!-- Codeword + Compact Spoiler "текст" -->
                                 <div class="inline-flex items-center gap-1.5">
                                     <button 
                                         type="button"
@@ -2931,7 +2994,6 @@
                                 </div>
                             </div>
 
-                            <!-- Right Group: Partner / Contractor Name ("С кем заключен контракт") pushed to the far right side of the block -->
                             <div class="flex items-center justify-end gap-2 ml-auto text-right shrink-0">
                                 <div class="flex items-center justify-end gap-2">
                                     <i data-lucide="building-2" class="w-4 h-4 text-cnn-orange shrink-0"></i>
@@ -2956,7 +3018,6 @@
                             </div>
                         </div>
 
-                        <!-- Spoiler Content: Full Contract Text & Exact Date/Hours Editor -->
                         <div class="${isOpen ? 'block' : 'hidden'} px-4 pb-4 sm:px-5 sm:pb-5 pt-2 border-t border-cnn-border/70 bg-cnn-bg/60">
                             <div class="p-3.5 rounded-xl bg-cnn-bg border border-cnn-border">
                                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -2979,7 +3040,6 @@
                                     </button>
                                 </div>
 
-                                <!-- Quick Contract Date/Hours Setter & Delete Actions -->
                                 <div class="mt-3 pt-2.5 border-t border-cnn-border flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-xs">
                                     <div class="flex flex-wrap items-center gap-2 text-[11px] font-mono text-cnn-textMuted">
                                         <span>Активен до: <b class="text-white">${escapeHtml(fullExpireDate)}</b></span>
@@ -3146,7 +3206,7 @@
             state.contracts = createDefaultContracts();
             saveDatabase();
             updateUI();
-            logToTestConsole('🔄 База контрактов и смещение времени сброшены к исходным значениям.', 'text-gray-400');
+            logToTestConsole('🔄 Общая база контрактов и смещение времени сброшены к исходным значениям.', 'text-gray-400');
             showToast('Тестовая среда сброшена');
         }
 
@@ -3156,7 +3216,6 @@
 
             const now = getCurrentTimeMs();
 
-            // Test 1: Contract >= 2 days has status "Активен" and exact day formatting
             const cActive = { id: 'ut-1', codeword: 'UT-ACTIVE', partner: 'Unit Test 1', fullText: 'Text', expiresAt: now + (5 * DAY_MS) };
             const days1 = getContractDaysLeft(cActive);
             const label1 = formatDaysRemaining(cActive);
@@ -3168,7 +3227,6 @@
                 isActiveStatus ? 'text-emerald-400' : 'text-red-400'
             );
 
-            // Test 2: Contract < 1 day (18 hours) outputs exact hours "18 ч." without rounding and has status "Скоро истекает"
             const cExpiring = { id: 'ut-2', codeword: 'UT-EXPIRING', partner: 'Unit Test 2', fullText: 'Text', expiresAt: now + (18 * HOUR_MS) };
             const days2 = getContractDaysLeft(cExpiring);
             const label2 = formatDaysRemaining(cExpiring);
@@ -3180,7 +3238,6 @@
                 isExpiringStatus ? 'text-emerald-400' : 'text-red-400'
             );
 
-            // Test 3: Expired contract (<= 0 hours) is automatically deleted from state.contracts
             const expiredContractId = 'ut-expired-' + Date.now();
             state.contracts.unshift({
                 id: expiredContractId,
@@ -3198,7 +3255,6 @@
                 !stillExists ? 'text-emerald-400' : 'text-red-400'
             );
 
-            // Test 4: Live 4-second countdown contract creation and real-time removal
             logToTestConsole('⏳ [ТЕСТ 4 В ПРОЦЕССЕ] Создан живой контракт «LIVE-ТЕСТ-4С» на 4 секунды для визуальной проверки...', 'text-cnn-orange');
             const liveId = 'ut-live-' + Date.now();
             state.contracts.unshift({
@@ -3224,7 +3280,6 @@
             }, 4200);
         }
 
-        // Multi-file Project Generator for E:\cnnPortal (index.html, style.css, app.js, tests.js)
         function getSplitFilesMap() {
             const styleEl = document.querySelector('style');
             const styleContent = styleEl ? styleEl.innerHTML.trim() : '';
@@ -3246,36 +3301,11 @@
     <script src="https://cdn.tailwindcss.com"><\/script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"><\/script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        cnn: {
-                            bg: '#121214',
-                            card: '#1c1c21',
-                            surface: '#26262e',
-                            border: '#32323d',
-                            orange: '#ff6b00',
-                            orangeHover: '#ff8800',
-                            orangeMuted: 'rgba(255, 107, 0, 0.14)',
-                            textMain: '#f4f4f6',
-                            textMuted: '#9ca3af'
-                        }
-                    }
-                }
-            }
-        }
-    <\/script>
-    <!-- Подключение внешнего файла стилей в папке E:\\cnnPortal -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body class="min-h-screen flex flex-col bg-cnn-bg text-cnn-textMain">
-    <!-- Разметка портала CNN Portal -->
-    ${document.body.innerHTML.split('<script>')[0].trim()}
-    <!-- Подключение разделенных скриптов проекта в папке E:\\cnnPortal -->
-    <script src="app.js"><\/script>
+    ${document.body.innerHTML.split('<script')[0].trim()}
+    <script type="module" src="app.js"><\/script>
     <script src="tests.js"><\/script>
 </body>
 </html>`;
@@ -3376,9 +3406,61 @@
             return String(str).replace(/'/g, "\\'").replace(/"/g, '&quot;');
         }
 
-        window.addEventListener('DOMContentLoaded', () => {
-            loadDatabase();
-            loadProMemory();
+        Object.assign(window, {
+            openMultiFileModal,
+            closeMultiFileModal,
+            selectSplitFileTab,
+            copyActiveSplitFile,
+            downloadActiveSplitFile,
+            downloadAllSplitFiles,
+            toggleTestPanel,
+            runAutomatedContractTests,
+            spawnFiveSecondTestContract,
+            spawnExpiringSoonTestContract,
+            advanceSimulatedTimeDays,
+            resetTestEnvironment,
+            clearTestLog,
+            switchMainPage,
+            toggleAddContractForm,
+            fillSampleContract,
+            handleCreateContract,
+            syncDurationFromTargetDate,
+            syncTargetDateFromDuration,
+            setContractTimePreset,
+            renderContracts,
+            clearContractSearch,
+            setContractFilter,
+            toggleContractSpoiler,
+            togglePinContract,
+            extendContractHours,
+            updateContractExactDate,
+            deleteContractById,
+            copyContractById,
+            openForumImportModal,
+            closeForumImportModal,
+            fillSampleForumRulesText,
+            processForumTextImport,
+            clearProBuilderInput,
+            handleProRawInput,
+            copyAndLearnProAd,
+            explicitlyTeachCurrentPair,
+            setProRawExample,
+            setProManualField,
+            rebuildProFromManualControls,
+            onProOutputManualEdit,
+            setProFormatSetting,
+            handleAddCustomSlang,
+            selectWikiCategoryTab,
+            renderWikiCatalog,
+            renderProLearningDashboard,
+            exportLearnedMemoryJson,
+            resetLearnedMemory,
+            deleteLearnedTemplate,
+            deleteSlangEntry,
+            forceManualSyncCheck
+        });
+
+        window.addEventListener('DOMContentLoaded', async () => {
             updateProSidebarBadge();
             purgeExpiredContracts(true);
             syncTargetDateFromDuration();
@@ -3386,7 +3468,8 @@
             renderWikiCatalog();
             handleProRawInput();
 
-            // Real-time background watcher every 1 second to auto-delete expired contracts and update countdowns
+            await initCloudSync();
+
             setInterval(() => {
                 const deleted = purgeExpiredContracts(false);
                 const hasShortTimer = state.contracts.some(c => getContractDaysLeft(c) < (1 / 24));
