@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CNN Portal — Система контрактов</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest" defer></script>
+    <style>
+        body { background-color: #121214; color: #e4e4e7; font-family: 'Inter', sans-serif; }
+        .cnn-bg { background-color: #1c1c21; }
+        .cnn-border { border-color: #26262e; }
+        .cnn-orange { color: #ff6b00; }
+        .cnn-orange-bg { background-color: #ff6b00; }
+        .cnn-orange-bg:hover { background-color: #e66000; }
+        .spoiler-content { display: none; }
+        .spoiler-content.open { display: block; }
+    </style>
+</head>
+<body class="min-h-screen flex text-sm">
+
+    <!-- Левое меню -->
+    <aside class="w-64 cnn-bg border-r cnn-border flex flex-col hidden md:flex">
+        <div class="p-4 border-b cnn-border text-lg font-bold text-white">CNN PORTAL</div>
+        <nav class="flex-1 p-2 space-y-1">
+            <button onclick="switchTab('contracts')" id="tab-contracts" class="w-full text-left p-2 rounded cnn-orange-bg text-white font-medium">📜 Контракты</button>
+            <button onclick="switchTab('pro')" id="tab-pro" class="w-full text-left p-2 rounded hover:bg-[#26262e] text-gray-300">✨ Конструктор ПРО</button>
+            <button onclick="switchTab('dict')" id="tab-dict" class="w-full text-left p-2 rounded hover:bg-[#26262e] text-gray-300">📚 Справочник</button>
+        </nav>
+    </aside>
+
+    <!-- Основной контент -->
+    <main class="flex-1 flex flex-col h-screen overflow-hidden">
+        <header class="p-4 border-b cnn-border cnn-bg flex justify-between items-center">
+            <h1 id="page-title" class="text-xl font-bold text-white">Активные контракты</h1>
+            <div class="text-xs text-gray-500">Синхронизировано</div>
+        </header>
+
+        <div class="flex-1 overflow-auto p-4 md:p-6" id="main-container">
+            
+            <!-- ВКЛАДКА: КОНТРАКТЫ -->
+            <div id="view-contracts" class="space-y-6">
+                <div class="cnn-bg p-4 rounded-lg border cnn-border">
+                    <h2 class="font-bold text-white mb-3">+ Добавить контракт</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+                        <input type="text" id="new-code" placeholder="Кодовое слово" class="w-full bg-[#121214] border cnn-border rounded p-2 text-white">
+                        <input type="text" id="new-client" placeholder="Заказчик (с кем заключен)" class="w-full bg-[#121214] border cnn-border rounded p-2 text-white">
+                        <div class="flex gap-2">
+                            <input type="number" id="new-days" placeholder="Дней" class="w-1/2 bg-[#121214] border cnn-border rounded p-2 text-white">
+                            <input type="number" id="new-hours" placeholder="Часов" class="w-1/2 bg-[#121214] border cnn-border rounded p-2 text-white">
+                        </div>
+                        <button onclick="addContract()" class="cnn-orange-bg text-white font-bold rounded p-2">Добавить</button>
+                    </div>
+                    <textarea id="new-text" placeholder="Полный текст контракта (для копирования)..." class="w-full mt-3 bg-[#121214] border cnn-border rounded p-2 text-white h-20"></textarea>
+                </div>
+
+                <div id="contracts-list" class="space-y-3"></div>
+            </div>
+
+            <!-- ВКЛАДКА: КОНСТРУКТОР ПРО -->
+            <div id="view-pro" class="hidden space-y-4">
+                <div class="cnn-bg p-4 rounded-lg border cnn-border">
+                    <h2 class="font-bold text-white mb-2">Конструктор ПРО</h2>
+                    <p class="text-gray-400 mb-4 text-sm">Введите сокращенный запрос (например: <span class="text-gray-200">продам инфернус фт 15кк</span>)</p>
+                    <input type="text" id="pro-input" placeholder="Введите текст..." class="w-full bg-[#121214] border cnn-border rounded p-3 text-white text-lg">
+                    <button onclick="generatePRO()" class="mt-3 w-full cnn-orange-bg text-white font-bold rounded p-3">Сгенерировать по ПРО</button>
+                    <textarea id="pro-output" readonly class="w-full mt-4 bg-[#121214] border cnn-border rounded p-3 text-white h-24 text-lg" placeholder="Здесь появится готовое объявление..."></textarea>
+                    <button onclick="copyPRO()" class="mt-2 bg-gray-700 hover:bg-gray-600 text-white rounded p-2 px-4 flex items-center gap-2">
+                        <i data-lucide="copy" class="w-4 h-4"></i> Скопировать текст
+                    </button>
+                </div>
+            </div>
+
+            <!-- ВКЛАДКА: СПРАВОЧНИК -->
+            <div id="view-dict" class="hidden space-y-4">
+                <div class="cnn-bg p-4 rounded-lg border cnn-border text-gray-300">
+                    <h2 class="font-bold text-white mb-2 text-lg">Справочник объектов SantaMaria RP</h2>
+                    <p class="mb-4">В систему интегрирована база на 1406 объектов. Алгоритм Конструктора ПРО автоматически подставляет правильные форматы (а/м, м/ц, о/п, а/с) при вводе этих названий.</p>
+                    <div class="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                        <div class="bg-[#121214] p-4 rounded border cnn-border flex justify-between"><span>🚗 Транспорт</span> <strong class="text-white">241</strong></div>
+                        <div class="bg-[#121214] p-4 rounded border cnn-border flex justify-between"><span>🏠 Недвижимость</span> <strong class="text-white">350</strong></div>
+                        <div class="bg-[#121214] p-4 rounded border cnn-border flex justify-between"><span>🏢 Бизнесы</span> <strong class="text-white">110</strong></div>
+                        <div class="bg-[#121214] p-4 rounded border cnn-border flex justify-between"><span>👕 Одежда</span> <strong class="text-white">450</strong></div>
+                        <div class="bg-[#121214] p-4 rounded border cnn-border flex justify-between"><span>🎒 Предметы</span> <strong class="text-white">255</strong></div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            renderContracts();
+            if(typeof lucide !== 'undefined') lucide.createIcons();
+        });
+
+        function switchTab(tabId) {
+            document.getElementById('view-contracts').classList.add('hidden');
+            document.getElementById('view-pro').classList.add('hidden');
+            document.getElementById('view-dict').classList.add('hidden');
+            
+            document.getElementById('tab-contracts').className = "w-full text-left p-2 rounded hover:bg-[#26262e] text-gray-300";
+            document.getElementById('tab-pro').className = "w-full text-left p-2 rounded hover:bg-[#26262e] text-gray-300";
+            document.getElementById('tab-dict').className = "w-full text-left p-2 rounded hover:bg-[#26262e] text-gray-300";
+            
+            document.getElementById('view-' + tabId).classList.remove('hidden');
+            document.getElementById('tab-' + tabId).className = "w-full text-left p-2 rounded cnn-orange-bg text-white font-medium";
+            
+            const titles = { 'contracts': 'Активные контракты', 'pro': 'Конструктор ПРО', 'dict': 'Справочник ПРО' };
+            document.getElementById('page-title').innerText = titles[tabId];
+        }
+
+        // КОНТРАКТЫ (С кнопкой удаления)
+        function getContracts() {
+            return JSON.parse(localStorage.getItem('cnn_contracts') || '[]');
+        }
+
+        function saveContracts(contracts) {
+            localStorage.setItem('cnn_contracts', JSON.stringify(contracts));
+            renderContracts();
+        }
+
+        function addContract() {
+            const code = document.getElementById('new-code').value.trim();
+            const client = document.getElementById('new-client').value.trim();
+            const days = parseInt(document.getElementById('new-days').value) || 0;
+            const hours = parseInt(document.getElementById('new-hours').value) || 0;
+            const text = document.getElementById('new-text').value.trim();
+
+            if(!code || !text || (days === 0 && hours === 0)) {
+                alert("Заполните кодовое слово, срок (дни/часы) и текст контракта!");
+                return;
+            }
+
+            const endTime = Date.now() + (days * 24 * 60 * 60 * 1000) + (hours * 60 * 60 * 1000);
+            const contracts = getContracts();
+            contracts.push({ code, client, text, endTime, id: Date.now() });
+            saveContracts(contracts);
+
+            document.getElementById('new-code').value = '';
+            document.getElementById('new-client').value = '';
+            document.getElementById('new-days').value = '';
+            document.getElementById('new-hours').value = '';
+            document.getElementById('new-text').value = '';
+        }
+
+        function deleteContract(id) {
+            if(confirm('Вы действительно хотите удалить этот контракт?')) {
+                let contracts = getContracts();
+                contracts = contracts.filter(c => c.id !== id);
+                saveContracts(contracts);
+            }
+        }
+
+        function copyText(text) {
+            navigator.clipboard.writeText(text);
+        }
+
+        function toggleSpoiler(id) {
+            document.getElementById('spoiler-' + id).classList.toggle('open');
+        }
+
+        function renderContracts() {
+            const list = document.getElementById('contracts-list');
+            let contracts = getContracts();
+            const now = Date.now();
+            let html = '';
+
+            const activeContracts = contracts.filter(c => c.endTime > now);
+            if(activeContracts.length !== contracts.length) {
+                localStorage.setItem('cnn_contracts', JSON.stringify(activeContracts));
+                contracts = activeContracts;
+            }
+
+            if(contracts.length === 0) {
+                list.innerHTML = '<div class="text-gray-500 text-center py-10">Нет активных контрактов.</div>';
+                return;
+            }
+
+            contracts.sort((a, b) => a.endTime - b.endTime).forEach(c => {
+                const diffMs = c.endTime - now;
+                const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+                const diffHours = Math.floor(diffMs / (1000 * 60 * 60)) % 24;
+                
+                let timeStr = diffDays > 0 ? `${diffDays} дн.` : `${diffHours} ч.`;
+                let statusClass = diffDays < 2 ? 'bg-yellow-900/50 text-yellow-400 border-yellow-800' : 'bg-green-900/50 text-green-400 border-green-800';
+                let statusText = diffDays < 2 ? 'Скоро истекает' : 'Активен';
+
+                const safeText = c.text.replace(/"/g, '&quot;');
+                const safeCode = c.code.replace(/"/g, '&quot;');
+
+                html += `
+                <div class="cnn-bg border cnn-border rounded-lg overflow-hidden">
+                    <div class="p-3 flex flex-wrap items-center justify-between gap-3">
+                        <div class="flex items-center gap-3 flex-1 min-w-[200px]">
+                            <span class="text-xs px-2 py-1 rounded border ${statusClass}">${statusText}</span>
+                            <span class="text-gray-400 text-xs font-mono w-12">${timeStr}</span>
+                            <button onclick="copyText('${safeText}')" class="cnn-orange-bg text-white font-bold px-3 py-1.5 rounded hover:bg-[#e66000] transition-colors">
+                                ${c.code}
+                            </button>
+                            <button onclick="toggleSpoiler(${c.id})" class="text-gray-400 hover:text-white bg-[#121214] border cnn-border px-2 py-1 rounded text-xs flex items-center gap-1">
+                                Текст ⌄
+                            </button>
+                        </div>
+
+                        <div class="flex items-center gap-4">
+                            <span class="text-gray-400 text-sm hidden sm:block">${c.client || 'Контрагент не указан'}</span>
+                            <div class="flex items-center gap-2">
+                                <button onclick="copyText('${safeCode}')" class="text-gray-400 hover:text-white p-1.5 rounded hover:bg-[#26262e]" title="Копировать кодовое слово">
+                                    <i data-lucide="copy" class="w-4 h-4"></i>
+                                </button>
+                                <button onclick="deleteContract(${c.id})" class="text-red-500 hover:text-red-400 p-1.5 rounded hover:bg-red-950 transition-colors" title="Удалить контракт">
+                                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="spoiler-${c.id}" class="spoiler-content border-t cnn-border bg-[#121214] p-4 text-gray-300 text-sm whitespace-pre-wrap">${c.text}</div>
+                </div>`;
+            });
+
+            list.innerHTML = html;
+            if(typeof lucide !== 'undefined') lucide.createIcons();
+        }
+
+        // КОНСТРУКТОР ПРО (Умная генерация)
+        function generatePRO() {
+            const input = document.getElementById('pro-input').value.trim();
+            const output = document.getElementById('pro-output');
+            if(!input) { output.value = "Введите текст."; return; }
+
+            let result = input;
+            
+            // Замена сумм
+            result = result.replace(/(\d+)\s*(кк|kk|млн)/gi, (m, p1) => `${p1}.000.000$`);
+            result = result.replace(/(\d+)\s*(к|k|тыс)/gi, (m, p1) => `${p1}.000$`);
+            
+            // Базовые префиксы покупки/продажи
+            if(result.toLowerCase().includes('продам')) {
+                result = result.replace(/продам/i, 'Продам');
+                if(!result.includes('$')) result += '. Цена: Договорная.';
+                else result = result.replace(/\s+(\d[\d\.]*\$)/, '. Цена: $1.');
+            } else if (result.toLowerCase().includes('куплю')) {
+                result = result.replace(/куплю/i, 'Куплю');
+                if(!result.includes('$')) result += '. Бюджет: Свободный.';
+                else result = result.replace(/\s+(\d[\d\.]*\$)/, '. Бюджет: $1.');
+            }
+
+            // Распознавание интегрированных объектов
+            result = result.replace(/инфернус/gi, 'а/м марки "Infernus"');
+            result = result.replace(/гелик/gi, 'а/м марки "Mercedes-Benz G63"');
+            result = result.replace(/фт/gi, 'в полной комплектации');
+
+            output.value = result;
+        }
+
+        function copyPRO() {
+            const text = document.getElementById('pro-output').value;
+            if(text) copyText(text);
+        }
+
+        setInterval(renderContracts, 60000);
+    </script>
+</body>
+</html>
