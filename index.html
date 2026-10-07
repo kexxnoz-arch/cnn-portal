@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CNN Portal — Система контрактов</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        cnn: { bg: '#121214', panel: '#1c1c21', border: '#26262e', orange: '#ff6b00', orangeHover: '#e66000' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #121214; color: #e4e4e7; font-family: 'Inter', sans-serif; }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .spoiler-content { display: none; }
+        .spoiler-content.open { display: block; animation: fadeIn 0.2s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col text-sm">
+
+    <!-- Шапка -->
+    <header class="h-16 px-6 border-b border-cnn-border bg-cnn-panel flex items-center justify-between shrink-0 sticky top-0 z-50">
+        <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded bg-cnn-orange flex items-center justify-center font-bold text-white tracking-tighter">CNN</div>
+            <span class="text-lg font-bold text-white tracking-wide">PORTAL</span>
+        </div>
+        <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#121214] border border-cnn-border text-gray-400 text-xs font-medium">
+            База контрактов
+        </div>
+    </header>
+
+    <!-- Основная рабочая область -->
+    <main class="flex-1 overflow-auto p-4 md:p-6 hide-scrollbar">
+        <div class="space-y-6 max-w-5xl mx-auto">
+            
+            <!-- Форма добавления -->
+            <div class="bg-cnn-panel border border-cnn-border rounded-xl p-5 shadow-lg">
+                <h2 class="text-white font-bold mb-4 flex items-center gap-2 text-base">
+                    <i data-lucide="plus-circle" class="w-5 h-5 text-cnn-orange"></i> Добавить новый контракт
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
+                    <div class="md:col-span-4">
+                        <label class="block text-xs text-gray-400 mb-1">Кодовое слово</label>
+                        <input type="text" id="add-code" class="w-full bg-cnn-bg border border-cnn-border rounded-lg px-3 py-2.5 text-white focus:border-cnn-orange outline-none transition-colors font-bold uppercase" placeholder="Например: АЗС">
+                    </div>
+                    <div class="md:col-span-4">
+                        <label class="block text-xs text-gray-400 mb-1">Заказчик (с кем заключен)</label>
+                        <input type="text" id="add-client" class="w-full bg-cnn-bg border border-cnn-border rounded-lg px-3 py-2.5 text-white focus:border-cnn-orange outline-none transition-colors" placeholder="Имя Фамилия">
+                    </div>
+                    
+                    <div class="md:col-span-4 flex gap-3">
+                        <div class="w-1/2">
+                            <label class="block text-xs text-gray-400 mb-1">Дней</label>
+                            <input type="number" id="add-days" min="0" value="7" class="w-full bg-cnn-bg border border-cnn-border rounded-lg px-3 py-2.5 text-white focus:border-cnn-orange outline-none transition-colors text-center font-mono">
+                        </div>
+                        <div class="w-1/2">
+                            <label class="block text-xs text-gray-400 mb-1">Часов</label>
+                            <input type="number" id="add-hours" min="0" max="23" value="0" class="w-full bg-cnn-bg border border-cnn-border rounded-lg px-3 py-2.5 text-white focus:border-cnn-orange outline-none transition-colors text-center font-mono">
+                        </div>
+                    </div>
+
+                    <div class="md:col-span-10">
+                        <label class="block text-xs text-gray-400 mb-1">Полный текст контракта</label>
+                        <textarea id="add-text" rows="2" class="w-full bg-cnn-bg border border-cnn-border rounded-lg px-3 py-2 text-white focus:border-cnn-orange outline-none transition-colors resize-none" placeholder="Текст для копирования в эфир..."></textarea>
+                    </div>
+                    <div class="md:col-span-2 flex items-end">
+                        <button onclick="createNewContract()" class="w-full h-[52px] bg-cnn-orange hover:bg-cnn-orangeHover text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg shadow-orange-900/20">
+                            <i data-lucide="check" class="w-5 h-5"></i> Создать
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Список контрактов -->
+            <div id="contracts-container" class="space-y-3"></div>
+        </div>
+    </main>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            renderContractsList();
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+            setInterval(renderContractsList, 60000);
+        });
+
+        // --- РАБОТА С КОНТРАКТАМИ ---
+        // Используем новый ключ, чтобы старые тесты не мешали
+        function getSavedContracts() {
+            return JSON.parse(localStorage.getItem('cnn_pure_contracts') || '[]');
+        }
+
+        function saveContractsDb(arr) {
+            localStorage.setItem('cnn_pure_contracts', JSON.stringify(arr));
+            renderContractsList();
+        }
+
+        function createNewContract() {
+            const code = document.getElementById('add-code').value.trim();
+            const client = document.getElementById('add-client').value.trim();
+            const text = document.getElementById('add-text').value.trim();
+            const days = parseInt(document.getElementById('add-days').value) || 0;
+            const hours = parseInt(document.getElementById('add-hours').value) || 0;
+
+            if (!code || !text) {
+                alert("Заполните кодовое слово и текст контракта!");
+                return;
+            }
+            if (days === 0 && hours === 0) {
+                alert("Укажите срок действия контракта!");
+                return;
+            }
+
+            const endTime = Date.now() + (days * 24 * 60 * 60 * 1000) + (hours * 60 * 60 * 1000);
+            
+            let db = getSavedContracts();
+            db.push({ id: Date.now(), code, client, text, endTime });
+            saveContractsDb(db);
+
+            document.getElementById('add-code').value = '';
+            document.getElementById('add-client').value = '';
+            document.getElementById('add-text').value = '';
+        }
+
+        function deleteContractRow(id) {
+            if (confirm("Вы действительно хотите удалить этот контракт?")) {
+                let db = getSavedContracts().filter(c => c.id !== id);
+                saveContractsDb(db);
+            }
+        }
+
+        function toggleSpoilerRow(id) {
+            const el = document.getElementById('spoiler-' + id);
+            if(el) el.classList.toggle('open');
+        }
+
+        function copyRawText(text, event) {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            
+            // Визуальный фидбек галочки
+            const btn = event.currentTarget;
+            const origHTML = btn.innerHTML;
+            btn.innerHTML = '<i data-lucide="check-circle" class="w-4 h-4 text-green-400 mx-auto"></i>';
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+            setTimeout(() => { 
+                btn.innerHTML = origHTML; 
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            }, 1000);
+        }
+
+        function renderContractsList() {
+            const container = document.getElementById('contracts-container');
+            let db = getSavedContracts();
+            const now = Date.now();
+            let html = '';
+
+            const activeDb = db.filter(c => c.endTime > now);
+            if(activeDb.length !== db.length) {
+                localStorage.setItem('cnn_pure_contracts', JSON.stringify(activeDb));
+                db = activeDb;
+            }
+
+            if(db.length === 0) {
+                container.innerHTML = '<div class="text-center py-16 text-gray-500 bg-cnn-panel rounded-xl border border-cnn-border">Активных контрактов нет. Добавьте первый контракт выше.</div>';
+                return;
+            }
+
+            db.sort((a, b) => a.endTime - b.endTime).forEach(c => {
+                const diffMs = c.endTime - now;
+                const daysLeft = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+                const hoursLeft = Math.floor(diffMs / (1000 * 60 * 60)) % 24;
+                
+                let timeStr = daysLeft > 0 ? `${daysLeft} дн.` : `${hoursLeft} ч.`;
+                let isExpiring = daysLeft < 2;
+                let statusBadge = isExpiring 
+                    ? '<span class="px-2.5 py-1 bg-yellow-900/30 text-yellow-500 border border-yellow-800 rounded text-xs font-medium">Скоро истекает</span>'
+                    : '<span class="px-2.5 py-1 bg-green-900/30 text-green-500 border border-green-800 rounded text-xs font-medium">Активен</span>';
+
+                const safeText = String(c.text).replace(/"/g, '&quot;').replace(/'/g, "\\'");
+                const safeCode = String(c.code).replace(/"/g, '&quot;').replace(/'/g, "\\'");
+
+                html += `
+                <div class="bg-cnn-panel border border-cnn-border rounded-xl overflow-hidden transition-all hover:border-gray-700">
+                    <div class="p-4 flex flex-wrap items-center justify-between gap-4">
+                        
+                        <!-- Левая часть -->
+                        <div class="flex items-center gap-3 flex-1 min-w-[280px]">
+                            ${statusBadge}
+                            <span class="text-gray-400 text-xs font-mono w-12 text-center bg-[#121214] border border-cnn-border py-1 rounded">${timeStr}</span>
+                            
+                            <div class="flex items-center shadow-lg">
+                                <button onclick="copyRawText('${safeText}', event)" class="bg-cnn-orange hover:bg-cnn-orangeHover text-white font-bold px-4 py-2 rounded-l-lg transition-colors flex items-center gap-2">
+                                    ${escapeHTML(c.code)}
+                                </button>
+                                <button onclick="toggleSpoilerRow(${c.id})" class="bg-[#26262e] hover:bg-gray-700 text-gray-300 px-3 py-2 rounded-r-lg border-l border-[#121214] text-xs transition-colors flex items-center">
+                                    Текст <i data-lucide="chevron-down" class="w-3 h-3 ml-1"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Правая часть -->
+                        <div class="flex items-center gap-4">
+                            <div class="text-sm font-bold text-white flex items-center gap-2">
+                                <span class="text-cnn-orange">🏢</span> ${escapeHTML(c.client || 'Не указан')}
+                            </div>
+                            <div class="flex items-center gap-1 border-l border-cnn-border pl-4">
+                                <button onclick="copyRawText('${safeCode}', event)" class="p-2 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors" title="Скопировать кодовое слово">
+                                    <i data-lucide="copy" class="w-4 h-4"></i>
+                                </button>
+                                <button onclick="deleteContractRow(${c.id})" class="p-2 w-8 h-8 flex items-center justify-center text-red-500 hover:text-red-400 hover:bg-red-950/50 rounded-lg transition-colors" title="Удалить контракт">
+                                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="spoiler-${c.id}" class="spoiler-content border-t border-cnn-border bg-[#121214] p-5 text-gray-300 text-sm whitespace-pre-wrap leading-relaxed">${escapeHTML(c.text)}</div>
+                </div>`;
+            });
+
+            container.innerHTML = html;
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+
+        function escapeHTML(str) {
+            return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+        }
+    </script>
+</body>
+</html>
