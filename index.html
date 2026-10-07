@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CNN Portal — Система контрактов</title>
+    <title>CNN Portal — База контрактов</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script>
@@ -29,7 +29,7 @@
 <body class="min-h-screen flex flex-col text-sm">
 
     <!-- Шапка -->
-    <header class="h-16 px-6 border-b border-cnn-border bg-cnn-panel flex items-center justify-between shrink-0 sticky top-0 z-50">
+    <header class="h-16 px-6 border-b border-cnn-border bg-cnn-panel flex items-center justify-between shrink-0 sticky top-0 z-40">
         <div class="flex items-center gap-3">
             <div class="w-8 h-8 rounded bg-cnn-orange flex items-center justify-center font-bold text-white tracking-tighter">CNN</div>
             <span class="text-lg font-bold text-white tracking-wide">PORTAL</span>
@@ -45,40 +45,35 @@
             
             <!-- Форма добавления -->
             <div class="bg-cnn-panel border border-cnn-border rounded-xl p-5 shadow-lg">
-                <h2 class="text-white font-bold mb-4 flex items-center gap-2 text-base">
-                    <i data-lucide="plus-circle" class="w-5 h-5 text-cnn-orange"></i> Добавить новый контракт
-                </h2>
-                <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
-                    <div class="md:col-span-4">
-                        <label class="block text-xs text-gray-400 mb-1">Кодовое слово</label>
-                        <input type="text" id="add-code" class="w-full bg-cnn-bg border border-cnn-border rounded-lg px-3 py-2.5 text-white focus:border-cnn-orange outline-none transition-colors font-bold uppercase" placeholder="Например: АЗС">
-                    </div>
-                    <div class="md:col-span-4">
-                        <label class="block text-xs text-gray-400 mb-1">Заказчик (с кем заключен)</label>
-                        <input type="text" id="add-client" class="w-full bg-cnn-bg border border-cnn-border rounded-lg px-3 py-2.5 text-white focus:border-cnn-orange outline-none transition-colors" placeholder="Имя Фамилия">
-                    </div>
-                    
-                    <div class="md:col-span-4 flex gap-3">
-                        <div class="w-1/2">
-                            <label class="block text-xs text-gray-400 mb-1">Дней</label>
-                            <input type="number" id="add-days" min="0" value="7" class="w-full bg-cnn-bg border border-cnn-border rounded-lg px-3 py-2.5 text-white focus:border-cnn-orange outline-none transition-colors text-center font-mono">
-                        </div>
-                        <div class="w-1/2">
-                            <label class="block text-xs text-gray-400 mb-1">Часов</label>
-                            <input type="number" id="add-hours" min="0" max="23" value="0" class="w-full bg-cnn-bg border border-cnn-border rounded-lg px-3 py-2.5 text-white focus:border-cnn-orange outline-none transition-colors text-center font-mono">
-                        </div>
-                    </div>
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-white font-bold flex items-center gap-2 text-base">
+                        <i data-lucide="plus-circle" class="w-5 h-5 text-cnn-orange"></i> Добавить новый контракт
+                    </h2>
+                    <button onclick="toggleImportModal()" class="text-xs bg-[#26262e] hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-2 shadow-md border border-[#32323d]">
+                        <i data-lucide="table" class="w-4 h-4 text-green-400"></i> Импорт из Google Таблиц
+                    </button>
+                </div>
 
-                    <div class="md:col-span-10">
-                        <label class="block text-xs text-gray-400 mb-1">Полный текст контракта</label>
-                        <textarea id="add-text" rows="2" class="w-full bg-cnn-bg border border-cnn-border rounded-lg px-3 py-2 text-white focus:border-cnn-orange outline-none transition-colors resize-none" placeholder="Текст для копирования в эфир..."></textarea>
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
+                    <div class="md:col-span-9 lg:col-span-10">
+                        <input type="text" id="add-code" class="w-full bg-cnn-bg border border-cnn-border rounded-lg px-4 py-3 text-white focus:border-cnn-orange outline-none transition-colors font-bold uppercase" placeholder="Кодовое слово (например: АЗС)">
                     </div>
-                    <div class="md:col-span-2 flex items-end">
-                        <button onclick="createNewContract()" class="w-full h-[52px] bg-cnn-orange hover:bg-cnn-orangeHover text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg shadow-orange-900/20">
+                    <div class="md:col-span-3 lg:col-span-2">
+                        <button onclick="createNewContract()" class="w-full h-full min-h-[48px] bg-cnn-orange hover:bg-cnn-orangeHover text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg shadow-orange-900/20">
                             <i data-lucide="check" class="w-5 h-5"></i> Создать
                         </button>
                     </div>
+
+                    <div class="md:col-span-12">
+                        <textarea id="add-text" rows="2" class="w-full bg-cnn-bg border border-cnn-border rounded-lg px-4 py-3 text-white focus:border-cnn-orange outline-none transition-colors resize-none" placeholder="Полный текст контракта для копирования в эфир..."></textarea>
+                    </div>
                 </div>
+            </div>
+
+            <!-- Поиск -->
+            <div class="relative">
+                <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500"></i>
+                <input type="text" id="search-code" oninput="renderContractsList()" class="w-full bg-cnn-panel border border-cnn-border rounded-xl pl-12 pr-4 py-3.5 text-white focus:border-cnn-orange outline-none transition-colors shadow-lg" placeholder="Поиск по кодовому слову...">
             </div>
 
             <!-- Список контрактов -->
@@ -86,15 +81,41 @@
         </div>
     </main>
 
+    <!-- Модальное окно Импорта -->
+    <div id="import-modal" class="fixed inset-0 bg-black/80 z-50 hidden flex items-center justify-center p-4 transition-opacity">
+        <div class="bg-cnn-panel border border-cnn-border rounded-xl w-full max-w-lg p-6 shadow-2xl relative">
+            <button onclick="toggleImportModal()" class="absolute top-4 right-4 text-gray-500 hover:text-white transition-colors"><i data-lucide="x" class="w-5 h-5"></i></button>
+            
+            <h3 class="text-xl font-bold text-white mb-3 flex items-center gap-2">
+                <i data-lucide="table" class="text-green-500 w-6 h-6"></i> Импорт из таблицы
+            </h3>
+            
+            <div class="text-sm text-gray-400 mb-5 leading-relaxed space-y-2">
+                <p>Вставьте ссылку на вашу Google Таблицу.</p>
+                <p class="text-yellow-500 bg-yellow-500/10 p-2 rounded border border-yellow-500/20">
+                    <b class="text-yellow-400">Внимание:</b> В настройках доступа к таблице обязательно выберите <b>«Все, у кого есть ссылка»</b>.
+                </p>
+                <p>Алгоритм автоматически вытащит:<br>
+                   • <b>Столбец B</b> — Кодовое слово<br>
+                   • <b>Столбец O</b> — Текст рекламы
+                </p>
+            </div>
+            
+            <input type="text" id="sheet-url" class="w-full bg-[#121214] border border-cnn-border rounded-lg px-4 py-3 text-white focus:border-cnn-orange outline-none transition-colors mb-4" placeholder="https://docs.google.com/spreadsheets/d/...">
+            
+            <button id="import-btn" onclick="startImport()" class="w-full h-[48px] bg-green-600 hover:bg-green-500 text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2 shadow-lg">
+                <i data-lucide="download" class="w-5 h-5"></i> Начать импорт
+            </button>
+        </div>
+    </div>
+
     <script>
         document.addEventListener("DOMContentLoaded", () => {
             renderContractsList();
             if (typeof lucide !== 'undefined') lucide.createIcons();
-            setInterval(renderContractsList, 60000);
         });
 
         // --- РАБОТА С КОНТРАКТАМИ ---
-        // Используем новый ключ, чтобы старые тесты не мешали
         function getSavedContracts() {
             return JSON.parse(localStorage.getItem('cnn_pure_contracts') || '[]');
         }
@@ -106,28 +127,18 @@
 
         function createNewContract() {
             const code = document.getElementById('add-code').value.trim();
-            const client = document.getElementById('add-client').value.trim();
             const text = document.getElementById('add-text').value.trim();
-            const days = parseInt(document.getElementById('add-days').value) || 0;
-            const hours = parseInt(document.getElementById('add-hours').value) || 0;
 
             if (!code || !text) {
                 alert("Заполните кодовое слово и текст контракта!");
                 return;
             }
-            if (days === 0 && hours === 0) {
-                alert("Укажите срок действия контракта!");
-                return;
-            }
 
-            const endTime = Date.now() + (days * 24 * 60 * 60 * 1000) + (hours * 60 * 60 * 1000);
-            
             let db = getSavedContracts();
-            db.push({ id: Date.now(), code, client, text, endTime });
+            db.push({ id: Date.now(), code, text });
             saveContractsDb(db);
 
             document.getElementById('add-code').value = '';
-            document.getElementById('add-client').value = '';
             document.getElementById('add-text').value = '';
         }
 
@@ -151,7 +162,6 @@
             document.execCommand('copy');
             document.body.removeChild(ta);
             
-            // Визуальный фидбек галочки
             const btn = event.currentTarget;
             const origHTML = btn.innerHTML;
             btn.innerHTML = '<i data-lucide="check-circle" class="w-4 h-4 text-green-400 mx-auto"></i>';
@@ -165,31 +175,24 @@
         function renderContractsList() {
             const container = document.getElementById('contracts-container');
             let db = getSavedContracts();
-            const now = Date.now();
-            let html = '';
+            
+            const searchQuery = document.getElementById('search-code').value.trim().toLowerCase();
 
-            const activeDb = db.filter(c => c.endTime > now);
-            if(activeDb.length !== db.length) {
-                localStorage.setItem('cnn_pure_contracts', JSON.stringify(activeDb));
-                db = activeDb;
+            if (searchQuery) {
+                db = db.filter(c => String(c.code).toLowerCase().includes(searchQuery));
             }
 
             if(db.length === 0) {
-                container.innerHTML = '<div class="text-center py-16 text-gray-500 bg-cnn-panel rounded-xl border border-cnn-border">Активных контрактов нет. Добавьте первый контракт выше.</div>';
+                if (searchQuery) {
+                    container.innerHTML = '<div class="text-center py-16 text-gray-500 bg-cnn-panel rounded-xl border border-cnn-border">По вашему запросу ничего не найдено.</div>';
+                } else {
+                    container.innerHTML = '<div class="text-center py-16 text-gray-500 bg-cnn-panel rounded-xl border border-cnn-border">База контрактов пуста. Добавьте первый контракт выше или импортируйте из Google Таблиц.</div>';
+                }
                 return;
             }
 
-            db.sort((a, b) => a.endTime - b.endTime).forEach(c => {
-                const diffMs = c.endTime - now;
-                const daysLeft = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-                const hoursLeft = Math.floor(diffMs / (1000 * 60 * 60)) % 24;
-                
-                let timeStr = daysLeft > 0 ? `${daysLeft} дн.` : `${hoursLeft} ч.`;
-                let isExpiring = daysLeft < 2;
-                let statusBadge = isExpiring 
-                    ? '<span class="px-2.5 py-1 bg-yellow-900/30 text-yellow-500 border border-yellow-800 rounded text-xs font-medium">Скоро истекает</span>'
-                    : '<span class="px-2.5 py-1 bg-green-900/30 text-green-500 border border-green-800 rounded text-xs font-medium">Активен</span>';
-
+            let html = '';
+            db.sort((a, b) => b.id - a.id).forEach(c => {
                 const safeText = String(c.text).replace(/"/g, '&quot;').replace(/'/g, "\\'");
                 const safeCode = String(c.code).replace(/"/g, '&quot;').replace(/'/g, "\\'");
 
@@ -199,32 +202,24 @@
                         
                         <!-- Левая часть -->
                         <div class="flex items-center gap-3 flex-1 min-w-[280px]">
-                            ${statusBadge}
-                            <span class="text-gray-400 text-xs font-mono w-12 text-center bg-[#121214] border border-cnn-border py-1 rounded">${timeStr}</span>
-                            
                             <div class="flex items-center shadow-lg">
-                                <button onclick="copyRawText('${safeText}', event)" class="bg-cnn-orange hover:bg-cnn-orangeHover text-white font-bold px-4 py-2 rounded-l-lg transition-colors flex items-center gap-2">
+                                <button onclick="copyRawText('${safeText}', event)" class="bg-cnn-orange hover:bg-cnn-orangeHover text-white font-bold px-5 py-2.5 rounded-l-lg transition-colors flex items-center gap-2">
                                     ${escapeHTML(c.code)}
                                 </button>
-                                <button onclick="toggleSpoilerRow(${c.id})" class="bg-[#26262e] hover:bg-gray-700 text-gray-300 px-3 py-2 rounded-r-lg border-l border-[#121214] text-xs transition-colors flex items-center">
-                                    Текст <i data-lucide="chevron-down" class="w-3 h-3 ml-1"></i>
+                                <button onclick="toggleSpoilerRow(${c.id})" class="bg-[#26262e] hover:bg-gray-700 text-gray-300 px-4 py-2.5 rounded-r-lg border-l border-[#121214] text-xs font-medium transition-colors flex items-center">
+                                    Текст <i data-lucide="chevron-down" class="w-3 h-3 ml-1.5"></i>
                                 </button>
                             </div>
                         </div>
 
                         <!-- Правая часть -->
-                        <div class="flex items-center gap-4">
-                            <div class="text-sm font-bold text-white flex items-center gap-2">
-                                <span class="text-cnn-orange">🏢</span> ${escapeHTML(c.client || 'Не указан')}
-                            </div>
-                            <div class="flex items-center gap-1 border-l border-cnn-border pl-4">
-                                <button onclick="copyRawText('${safeCode}', event)" class="p-2 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors" title="Скопировать кодовое слово">
-                                    <i data-lucide="copy" class="w-4 h-4"></i>
-                                </button>
-                                <button onclick="deleteContractRow(${c.id})" class="p-2 w-8 h-8 flex items-center justify-center text-red-500 hover:text-red-400 hover:bg-red-950/50 rounded-lg transition-colors" title="Удалить контракт">
-                                    <i data-lucide="trash-2" class="w-4 h-4"></i>
-                                </button>
-                            </div>
+                        <div class="flex items-center gap-1">
+                            <button onclick="copyRawText('${safeCode}', event)" class="p-2 w-9 h-9 flex items-center justify-center text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors" title="Скопировать кодовое слово">
+                                <i data-lucide="copy" class="w-4 h-4"></i>
+                            </button>
+                            <button onclick="deleteContractRow(${c.id})" class="p-2 w-9 h-9 flex items-center justify-center text-red-500 hover:text-red-400 hover:bg-red-950/50 rounded-lg transition-colors" title="Удалить контракт">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
                         </div>
                     </div>
                     
@@ -238,6 +233,97 @@
 
         function escapeHTML(str) {
             return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+        }
+
+        // --- ИМПОРТ ИЗ GOOGLE ТАБЛИЦ ---
+        function toggleImportModal() {
+            const modal = document.getElementById('import-modal');
+            modal.classList.toggle('hidden');
+        }
+
+        async function startImport() {
+            const urlInput = document.getElementById('sheet-url').value.trim();
+            if (!urlInput) return alert('Введите ссылку на таблицу');
+
+            const btn = document.getElementById('import-btn');
+            const originalBtnHTML = btn.innerHTML;
+            btn.innerHTML = '<i data-lucide="loader-2" class="w-5 h-5 animate-spin"></i> Загрузка...';
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+            btn.disabled = true;
+
+            try {
+                // Извлекаем ID таблицы
+                const match = urlInput.match(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+                if (!match) throw new Error('Не удалось найти ID таблицы в ссылке');
+                const sheetId = match[1];
+
+                // Извлекаем ID конкретного листа (gid), если есть
+                const gidMatch = urlInput.match(/gid=([0-9]+)/);
+                const gid = gidMatch ? gidMatch[1] : '0';
+
+                // Создаем ссылку для экспорта в формате TSV (Tab-Separated Values - надежнее всего для текста)
+                const exportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=tsv&gid=${gid}`;
+
+                const response = await fetch(exportUrl);
+                if (!response.ok) throw new Error('Нет доступа. Убедитесь, что таблица доступна "Всем у кого есть ссылка"');
+                const text = await response.text();
+
+                // Парсим TSV с учетом многострочного текста
+                const rows = parseTSV(text);
+                let db = getSavedContracts();
+                let importedCount = 0;
+
+                // Пропускаем первую строку (обычно там заголовки)
+                for (let i = 1; i < rows.length; i++) {
+                    const row = rows[i];
+                    if (row.length >= 15) { // Проверяем, что есть хотя бы 15 колонок (до O)
+                        const code = row[1] ? row[1].trim() : '';     // Индекс 1 = Столбец B
+                        const adText = row[14] ? row[14].trim() : ''; // Индекс 14 = Столбец O
+                        
+                        if (code && adText) {
+                            // Проверяем, нет ли уже такого контракта, чтобы не дублировать
+                            const exists = db.some(c => c.code.toLowerCase() === code.toLowerCase() && c.text === adText);
+                            if (!exists) {
+                                db.push({ id: Date.now() + importedCount, code: code, text: adText });
+                                importedCount++;
+                            }
+                        }
+                    }
+                }
+
+                saveContractsDb(db);
+                alert(`Импорт завершен! Добавлено новых контрактов: ${importedCount}`);
+                document.getElementById('sheet-url').value = '';
+                toggleImportModal();
+
+            } catch (error) {
+                alert(`Ошибка загрузки: ${error.message}`);
+                console.error(error);
+            } finally {
+                btn.innerHTML = originalBtnHTML;
+                btn.disabled = false;
+                if (typeof lucide !== 'undefined') lucide.createIcons();
+            }
+        }
+
+        // Функция парсинга формата TSV с учетом ячеек с переносами строк
+        function parseTSV(str) {
+            var arr = [];
+            var quote = false;
+            var row = 0, col = 0;
+            for (var c = 0; c < str.length; c++) {
+                var cc = str[c], nc = str[c+1];
+                arr[row] = arr[row] || [];
+                arr[row][col] = arr[row][col] || '';
+                if (cc == '"' && quote && nc == '"') { arr[row][col] += cc; ++c; continue; }
+                if (cc == '"') { quote = !quote; continue; }
+                if (cc == '\t' && !quote) { ++col; continue; }
+                if (cc == '\r' && nc == '\n' && !quote) { ++row; col = 0; ++c; continue; }
+                if (cc == '\n' && !quote) { ++row; col = 0; continue; }
+                if (cc == '\r' && !quote) { ++row; col = 0; continue; }
+                arr[row][col] += cc;
+            }
+            return arr;
         }
     </script>
 </body>
